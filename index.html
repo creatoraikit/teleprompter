@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Prompter</title>
+<style>
+  :root {
+    --bg: #000;
+    --panel: #161618;
+    --panel-2: #232326;
+    --line: #2e2e32;
+    --text: #f2f2f2;
+    --muted: #8e8e93;
+    --accent: #ffcc00;
+    --danger: #ff453a;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    overscroll-behavior: none;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  .screen { position: fixed; inset: 0; display: none; flex-direction: column; height: 100dvh; }
+  .screen.active { display: flex; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(var(--safe-t) + 10px) calc(var(--safe-r) + 16px) 10px calc(var(--safe-l) + 16px);
+    border-bottom: 1px solid var(--line); background: var(--bg);
+  }
+  header h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 700; }
+  .hbtn { padding: 8px 12px; border-radius: 10px; color: var(--accent); font-weight: 600; }
+  .hbtn:active { background: var(--panel-2); }
+
+  /* ---------- Library ---------- */
+  #list { flex: 1; overflow-y: auto; padding: 12px calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px); }
+  .item { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: 14px; margin-bottom: 10px; }
+  .item-main { flex: 1; min-width: 0; text-align: left; padding: 14px 16px; }
+  .item-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-meta { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .item-play { width: 48px; height: 48px; margin-right: 8px; border-radius: 50%; background: var(--accent); color: #000; display: grid; place-items: center; flex: none; }
+  .empty { color: var(--muted); text-align: center; margin-top: 30vh; padding: 0 24px; }
+
+  /* ---------- Editor ---------- */
+  #title { margin: 12px calc(var(--safe-r) + 16px) 0 calc(var(--safe-l) + 16px); padding: 12px 14px; background: var(--panel); border: 0; border-radius: 12px; color: var(--text); font: 600 17px/1.3 inherit; font-family: inherit; }
+  #body { flex: 1; margin: 10px calc(var(--safe-r) + 16px) 0 calc(var(--safe-l) + 16px); padding: 14px; background: var(--panel); border: 0; border-radius: 12px; color: var(--text); font: 17px/1.5 inherit; font-family: inherit; resize: none; }
+  #title, #body { font-size: 16px; } /* 16px prevents iOS zoom-on-focus */
+  #title:focus, #body:focus { outline: 2px solid var(--accent); }
+  .edit-foot { display: flex; gap: 10px; align-items: center; padding: 10px calc(var(--safe-r) + 16px) calc(var(--safe-b) + 10px) calc(var(--safe-l) + 16px); }
+  .edit-foot .stats { flex: 1; color: var(--muted); font-size: 14px; }
+  .btn { padding: 12px 18px; border-radius: 12px; background: var(--panel-2); font-weight: 600; }
+  .btn.primary { background: var(--accent); color: #000; }
+  .btn.danger { color: var(--danger); }
+  .btn:active { opacity: .7; }
+
+  /* ---------- Prompter ---------- */
+  #prompter { background: #000; }
+  #scroller {
+    position: absolute; inset: 0; overflow-y: scroll; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  #scroller::-webkit-scrollbar { display: none; }
+  #text {
+    padding: calc(var(--guide-y, 40dvh) - 0.6em) calc(var(--safe-r) + var(--margin, 6%)) 100dvh calc(var(--safe-l) + var(--margin, 6%));
+    font-size: var(--fs, 44px); line-height: 1.35; font-weight: 600;
+    white-space: pre-wrap; word-wrap: break-word;
+    text-align: var(--align, left);
+    user-select: none; -webkit-user-select: none;
+  }
+  #prompter.mirror-h #text { transform: scaleX(-1); }
+  #prompter.mirror-v #scroller { transform: scaleY(-1); }
+  #prompter.mirror-h.mirror-v #text { transform: scaleX(-1); }
+
+  /* reading guide */
+  #guide { position: absolute; left: 0; right: 0; top: 40%; height: 0; pointer-events: none; z-index: 2; }
+  #guide::before, #guide::after { content: ""; position: absolute; top: -12px; border: 12px solid transparent; }
+  #guide::before { left: calc(var(--safe-l) + 2px); border-left-color: var(--accent); }
+  #guide::after { right: calc(var(--safe-r) + 2px); border-right-color: var(--accent); }
+  #fadeTop, #fadeBot { position: absolute; left: 0; right: 0; pointer-events: none; z-index: 1; }
+  #fadeTop { top: 0; height: 22%; background: linear-gradient(#000, transparent); }
+  #fadeBot { bottom: 0; height: 22%; background: linear-gradient(transparent, #000); }
+  #prompter.no-guide #guide, #prompter.no-guide #fadeTop, #prompter.no-guide #fadeBot { display: none; }
+
+  /* camera */
+  #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); }
+  #camShade { position: absolute; inset: 0; display: none; background: rgba(0,0,0,var(--shade, .45)); pointer-events: none; }
+  #prompter.cam #cam, #prompter.cam #camShade { display: block; }
+  #prompter.cam.rear #cam { transform: none; }
+  #prompter.cam #fadeTop, #prompter.cam #fadeBot { display: none; }
+  #prompter.cam #text { text-shadow: 0 2px 6px #000, 0 0 2px #000; }
+  /* keep the reading line near the lens so your eyes look at the camera */
+  #prompter.cam #guide { top: 22%; }
+  #prompter.cam #text { --guide-y: 22dvh; }
+  #recDot { position: absolute; z-index: 6; top: calc(var(--safe-t) + 14px); right: calc(var(--safe-r) + 14px); display: none; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: rgba(0,0,0,.6); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
+  #recDot::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  #prompter.recording #recDot { display: flex; }
+  .ctl.rec { color: var(--danger); }
+  .ctl.rec.on { background: var(--danger); color: #fff; }
+  #saveBar { position: absolute; z-index: 7; left: 50%; top: 50%; transform: translate(-50%,-50%); display: none; flex-direction: column; gap: 10px; padding: 20px; width: min(320px, calc(100% - 32px)); border-radius: 18px; background: var(--panel); text-align: center; }
+  #saveBar.show { display: flex; }
+  #saveBar p { margin: 0 0 4px; color: var(--muted); font-size: 14px; }
+
+  #countdown { position: absolute; inset: 0; display: none; place-items: center; font-size: 30vmin; font-weight: 800; color: var(--accent); z-index: 5; pointer-events: none; }
+  #countdown.show { display: grid; }
+
+  /* controls */
+  #controls {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
+    padding: 12px calc(var(--safe-r) + 12px) calc(var(--safe-b) + 12px) calc(var(--safe-l) + 12px);
+    background: rgba(22,22,24,.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--line);
+    transition: transform .25s ease, opacity .25s ease;
+  }
+  #prompter.playing.hide-ui #controls { transform: translateY(100%); opacity: 0; pointer-events: none; }
+  #prompter.playing.hide-ui #topbar { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row + .row { margin-top: 10px; }
+  .ctl { min-width: 44px; height: 44px; padding: 0 10px; border-radius: 12px; background: var(--panel-2); display: grid; place-items: center; font-weight: 600; font-size: 15px; }
+  .ctl:active { opacity: .6; }
+  .ctl.on { background: var(--accent); color: #000; }
+  .big { width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: #000; display: grid; place-items: center; flex: none; }
+  .stepper { display: flex; align-items: center; gap: 4px; }
+  .stepper .ctl { min-width: 40px; padding: 0 6px; }
+  .stepper .val { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+  .stepper .lbl { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  #topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 4;
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(var(--safe-t) + 8px) calc(var(--safe-r) + 12px) 8px calc(var(--safe-l) + 12px);
+    background: rgba(22,22,24,.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    transition: transform .25s ease, opacity .25s ease;
+  }
+  #topbar .name { flex: 1; text-align: center; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); width: 0; }
+  #timeLeft { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+  svg { width: 24px; height: 24px; fill: currentColor; }
+  .big svg { width: 30px; height: 30px; }
+</style>
+</head>
+<body>
+
+<!-- Library -->
+<section id="library" class="screen active">
+  <header>
+    <h1>Scripts</h1>
+    <button class="hbtn" id="newBtn">+ New</button>
+  </header>
+  <div id="list"></div>
+</section>
+
+<!-- Editor -->
+<section id="editor" class="screen">
+  <header>
+    <button class="hbtn" id="editBack">‹ Scripts</button>
+    <h1></h1>
+    <button class="hbtn" id="pasteBtn">Paste</button>
+  </header>
+  <input id="title" placeholder="Title" autocomplete="off">
+  <textarea id="body" placeholder="Type or paste your script here…"></textarea>
+  <div class="edit-foot">
+    <span class="stats" id="stats"></span>
+    <button class="btn danger" id="delBtn">Delete</button>
+    <button class="btn primary" id="startBtn">Start ▶</button>
+  </div>
+</section>
+
+<!-- Prompter -->
+<section id="prompter" class="screen">
+  <video id="cam" playsinline muted autoplay></video>
+  <div id="camShade"></div>
+  <div id="scroller"><div id="text"></div></div>
+  <div id="fadeTop"></div><div id="fadeBot"></div>
+  <div id="guide"></div>
+  <div id="countdown"></div>
+  <div id="recDot"><span id="recTime">0:00</span></div>
+  <div id="saveBar">
+    <b>Recording finished</b>
+    <p id="saveInfo"></p>
+    <button class="btn primary" id="saveVid">Save video</button>
+    <button class="btn" id="discardVid">Discard</button>
+  </div>
+
+  <div id="topbar">
+    <button class="ctl" id="exitBtn" aria-label="Close">✕</button>
+    <span class="name" id="pName"></span>
+    <span id="timeLeft"></span>
+    <button class="ctl" id="restartBtn" aria-label="Back to start">⤒</button>
+    <div id="progress"></div>
+  </div>
+
+  <div id="controls">
+    <div class="row">
+      <div class="stepper">
+        <button class="ctl" data-step="speed" data-d="-1">−</button>
+        <span class="val"><span class="lbl">Speed</span><span id="speedVal"></span></span>
+        <button class="ctl" data-step="speed" data-d="1">+</button>
+      </div>
+      <button class="big" id="playBtn" aria-label="Play"></button>
+      <div class="stepper">
+        <button class="ctl" data-step="font" data-d="-1">A−</button>
+        <span class="val"><span class="lbl">Size</span><span id="fontVal"></span></span>
+        <button class="ctl" data-step="font" data-d="1">A+</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="ctl" id="mirrorH">Mirror ⇋</button>
+      <button class="ctl" id="mirrorV">Flip ⇅</button>
+      <button class="ctl" id="alignBtn">Left</button>
+      <button class="ctl" id="guideBtn">Guide</button>
+      <button class="ctl" id="cdBtn">3s</button>
+    </div>
+    <div class="row">
+      <button class="ctl" id="camBtn">Camera</button>
+      <button class="ctl" id="flipCam">Front</button>
+      <button class="ctl" id="shadeBtn">Dim 45%</button>
+      <button class="ctl rec" id="recBtn">● Rec</button>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+
+  // ---------- storage ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+  let scripts = store.get('tp.scripts', null);
+  if (!scripts) {
+    scripts = [{
+      id: Date.now().toString(36), title: 'Welcome', updated: Date.now(),
+      body: "Welcome to your teleprompter.\n\nTap the screen to play or pause.\n\nDrag with your finger to scroll back or skip ahead.\n\nUse + and − to change the speed, and A+ / A− to change the text size.\n\nMirror flips the text for use with a teleprompter glass or a reflection.\n\nThe yellow arrows mark your reading line. Keep your eyes there and the words come to you.\n\nYour scripts are saved on this phone automatically. Go back and tap + New to write your own."
+    }];
+    store.set('tp.scripts', scripts);
+  }
+  const settings = Object.assign(
+    { speed: 5, font: 44, mirrorH: false, mirrorV: false, align: 'left', guide: true, countdown: 3, camera: false, facing: 'user', shade: 0.45 },
+    store.get('tp.settings', {})
+  );
+  const saveSettings = () => store.set('tp.settings', settings);
+  const saveScripts = () => store.set('tp.scripts', scripts);
+
+  // ---------- navigation ----------
+  function show(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  }
+
+  // ---------- library ----------
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const words = t => (t.trim().match(/\S+/g) || []).length;
+  const fmtTime = sec => { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
+
+  function renderList() {
+    const list = $('#list');
+    if (!scripts.length) { list.innerHTML = '<p class="empty">No scripts yet.<br>Tap <b>+ New</b> to write one.</p>'; return; }
+    scripts.sort((a, b) => b.updated - a.updated);
+    list.innerHTML = scripts.map(s => {
+      const w = words(s.body);
+      return `<div class="item">
+        <button class="item-main" data-edit="${s.id}">
+          <div class="item-title">${esc(s.title || 'Untitled')}</div>
+          <div class="item-meta">${w} words · ~${fmtTime(w / 150 * 60)} at speaking pace</div>
+        </button>
+        <button class="item-play" data-play="${s.id}" aria-label="Play">${ICON_PLAY}</button>
+      </div>`;
+    }).join('');
+  }
+  $('#list').addEventListener('click', e => {
+    const ed = e.target.closest('[data-edit]'), pl = e.target.closest('[data-play]');
+    if (ed) openEditor(ed.dataset.edit);
+    if (pl) openPrompter(pl.dataset.play);
+  });
+
+  // ---------- editor ----------
+  let current = null;
+  function openEditor(id) {
+    current = scripts.find(s => s.id === id);
+    $('#title').value = current.title;
+    $('#body').value = current.body;
+    updateStats();
+    show('editor');
+  }
+  $('#newBtn').onclick = () => {
+    const s = { id: Date.now().toString(36), title: '', body: '', updated: Date.now() };
+    scripts.push(s); saveScripts();
+    openEditor(s.id);
+    setTimeout(() => $('#body').focus(), 50);
+  };
+  function updateStats() {
+    const w = words($('#body').value);
+    $('#stats').textContent = `${w} words · ~${fmtTime(w / 150 * 60)}`;
+  }
+  function saveCurrent() {
+    if (!current) return;
+    current.title = $('#title').value.trim();
+    current.body = $('#body').value;
+    current.updated = Date.now();
+    saveScripts();
+  }
+  $('#title').addEventListener('input', saveCurrent);
+  $('#body').addEventListener('input', () => { saveCurrent(); updateStats(); });
+  $('#editBack').onclick = () => {
+    if (current && !current.title && !current.body.trim()) { scripts = scripts.filter(s => s !== current); saveScripts(); }
+    current = null; renderList(); show('library');
+  };
+  $('#delBtn').onclick = () => {
+    if (!current) return;
+    const btn = $('#delBtn');
+    if (btn.dataset.confirm) {
+      scripts = scripts.filter(s => s !== current); saveScripts();
+      current = null; renderList(); show('library');
+      btn.textContent = 'Delete'; delete btn.dataset.confirm;
+    } else {
+      btn.textContent = 'Tap to confirm'; btn.dataset.confirm = 1;
+      setTimeout(() => { btn.textContent = 'Delete'; delete btn.dataset.confirm; }, 3000);
+    }
+  };
+  $('#pasteBtn').onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) { const b = $('#body'); b.value = b.value ? b.value + '\n\n' + t : t; saveCurrent(); updateStats(); }
+    } catch { $('#body').focus(); }
+  };
+  $('#startBtn').onclick = () => { saveCurrent(); openPrompter(current.id); };
+
+  // ---------- prompter ----------
+  const P = $('#prompter'), scroller = $('#scroller'), textEl = $('#text');
+  let playing = false, pos = 0, last = 0, raf = 0, touching = false, wakeLock = null, cdTimer = 0, hideTimer = 0, playingScript = null;
+
+  // speed 1..20 → pixels/sec, scaled to font size so "speed 5" feels similar at any size
+  const pxPerSec = () => settings.speed * 9 * (settings.font / 44);
+
+  function applySettings() {
+    textEl.style.setProperty('--fs', settings.font + 'px');
+    textEl.style.setProperty('--align', settings.align);
+    P.classList.toggle('mirror-h', settings.mirrorH);
+    P.classList.toggle('mirror-v', settings.mirrorV);
+    P.classList.toggle('no-guide', !settings.guide);
+    $('#speedVal').textContent = settings.speed;
+    $('#fontVal').textContent = settings.font;
+    $('#mirrorH').classList.toggle('on', settings.mirrorH);
+    $('#mirrorV').classList.toggle('on', settings.mirrorV);
+    $('#guideBtn').classList.toggle('on', settings.guide);
+    $('#alignBtn').textContent = settings.align === 'left' ? 'Left' : 'Center';
+    $('#cdBtn').textContent = settings.countdown ? settings.countdown + 's' : 'No wait';
+    $('#cdBtn').classList.toggle('on', !!settings.countdown);
+    $('#camBtn').classList.toggle('on', settings.camera);
+    $('#flipCam').textContent = settings.facing === 'user' ? 'Front' : 'Back';
+    $('#shadeBtn').textContent = 'Dim ' + Math.round(settings.shade * 100) + '%';
+    P.style.setProperty('--shade', settings.shade);
+    updateProgress();
+  }
+
+  function openPrompter(id) {
+    playingScript = scripts.find(s => s.id === id);
+    $('#pName').textContent = playingScript.title || 'Untitled';
+    textEl.textContent = playingScript.body || '(empty script)';
+    applySettings();
+    show('prompter');
+    pos = 0; scroller.scrollTop = 0;
+    setPlaying(false);
+    updateProgress();
+    requestWake();
+    if (settings.camera) startCamera();
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    P.classList.toggle('playing', p);
+    $('#playBtn').innerHTML = p ? ICON_PAUSE : ICON_PLAY;
+    cancelAnimationFrame(raf);
+    clearTimeout(hideTimer);
+    if (p) {
+      pos = scroller.scrollTop; last = performance.now();
+      raf = requestAnimationFrame(tick);
+      P.classList.remove('hide-ui');
+      hideTimer = setTimeout(() => playing && P.classList.add('hide-ui'), 1500);
+    } else {
+      P.classList.remove('hide-ui');
+    }
+  }
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (!touching) {
+      pos += pxPerSec() * dt;
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      if (pos >= max) { pos = max; scroller.scrollTop = pos; setPlaying(false); return; }
+      scroller.scrollTop = pos;
+    }
+    updateProgress();
+    raf = requestAnimationFrame(tick);
+  }
+
+  function updateProgress() {
+    // the script is done when its last line reaches the guide: scrollTop == content height
+    const cs = getComputedStyle(textEl);
+    const textEnd = Math.max(1, textEl.offsetHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+    const frac = Math.min(1, scroller.scrollTop / textEnd);
+    $('#progress').style.width = (frac * 100) + '%';
+    $('#timeLeft').textContent = fmtTime((textEnd - scroller.scrollTop) / pxPerSec());
+  }
+
+  function startWithCountdown() {
+    if (playing || cdTimer) { stopCountdown(); setPlaying(false); return; }
+    let n = settings.countdown;
+    if (!n) { setPlaying(true); return; }
+    const cd = $('#countdown');
+    cd.textContent = n; cd.classList.add('show');
+    cdTimer = setInterval(() => {
+      n--;
+      if (n <= 0) { stopCountdown(); setPlaying(true); }
+      else cd.textContent = n;
+    }, 1000);
+  }
+  function stopCountdown() { clearInterval(cdTimer); cdTimer = 0; $('#countdown').classList.remove('show'); }
+
+  // tap the text to play/pause; drag to scroll
+  let startY = 0, moved = false;
+  scroller.addEventListener('touchstart', e => { touching = true; moved = false; startY = e.touches[0].clientY; }, { passive: true });
+  scroller.addEventListener('touchmove', e => { if (Math.abs(e.touches[0].clientY - startY) > 8) moved = true; }, { passive: true });
+  scroller.addEventListener('touchend', () => {
+    touching = false;
+    pos = scroller.scrollTop;
+    if (!moved) startWithCountdown();
+    else if (playing) { P.classList.add('hide-ui'); }
+  });
+  scroller.addEventListener('scroll', () => { if (touching || !playing) { pos = scroller.scrollTop; updateProgress(); } }, { passive: true });
+  // desktop click
+  if (!('ontouchstart' in window)) scroller.addEventListener('click', startWithCountdown);
+
+  // Show controls again: tap near bottom or top edge while playing
+  P.addEventListener('touchstart', e => {
+    if (!playing) return;
+    const y = e.touches[0].clientY, h = window.innerHeight;
+    if (y > h * 0.85 || y < h * 0.12) {
+      P.classList.remove('hide-ui');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => playing && P.classList.add('hide-ui'), 3000);
+    }
+  }, { passive: true });
+
+  $('#playBtn').onclick = startWithCountdown;
+  $('#restartBtn').onclick = () => { stopCountdown(); setPlaying(false); pos = 0; scroller.scrollTop = 0; updateProgress(); };
+  $('#exitBtn').onclick = () => { stopCountdown(); setPlaying(false); stopRecording(); stopCamera(); releaseWake(); renderList(); show('library'); };
+
+  document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+    const d = +b.dataset.d;
+    if (b.dataset.step === 'speed') settings.speed = Math.min(20, Math.max(1, settings.speed + d));
+    else {
+      // keep the reading position anchored when text size changes
+      const frac = scroller.scrollTop / Math.max(1, scroller.scrollHeight);
+      settings.font = Math.min(120, Math.max(20, settings.font + d * 4));
+      applySettings();
+      scroller.scrollTop = pos = frac * scroller.scrollHeight;
+    }
+    saveSettings(); applySettings();
+    if (playing) { clearTimeout(hideTimer); hideTimer = setTimeout(() => playing && P.classList.add('hide-ui'), 2500); }
+  });
+  $('#mirrorH').onclick = () => { settings.mirrorH = !settings.mirrorH; saveSettings(); applySettings(); };
+  $('#mirrorV').onclick = () => { settings.mirrorV = !settings.mirrorV; saveSettings(); applySettings(); };
+  $('#alignBtn').onclick = () => { settings.align = settings.align === 'left' ? 'center' : 'left'; saveSettings(); applySettings(); };
+  $('#guideBtn').onclick = () => { settings.guide = !settings.guide; saveSettings(); applySettings(); };
+  $('#cdBtn').onclick = () => { settings.countdown = { 0: 3, 3: 5, 5: 0 }[settings.countdown] ?? 3; saveSettings(); applySettings(); };
+
+  // keyboard (Bluetooth keyboard / remote clickers usually send these)
+  document.addEventListener('keydown', e => {
+    if (!P.classList.contains('active')) return;
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startWithCountdown(); }
+    else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); scroller.scrollTop = pos = scroller.scrollTop - scroller.clientHeight * 0.3; }
+    else if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); scroller.scrollTop = pos = scroller.scrollTop + scroller.clientHeight * 0.3; }
+    else if (e.key === 'ArrowRight') { settings.speed = Math.min(20, settings.speed + 1); saveSettings(); applySettings(); }
+    else if (e.key === 'ArrowLeft') { settings.speed = Math.max(1, settings.speed - 1); saveSettings(); applySettings(); }
+    else if (e.key === 'Escape') $('#exitBtn').click();
+  });
+
+  // ---------- camera + recording ----------
+  const cam = $('#cam');
+  let stream = null, recorder = null, chunks = [], recStart = 0, recTimer = 0, lastVideo = null;
+
+  async function startCamera() {
+    stopCamera();
+    if (!navigator.mediaDevices?.getUserMedia) { alertMsg('Camera needs the app to be opened over https.'); settings.camera = false; applySettings(); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: settings.facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: true
+      });
+      cam.srcObject = stream;
+      P.classList.add('cam');
+      P.classList.toggle('rear', settings.facing !== 'user');
+    } catch (err) {
+      settings.camera = false; saveSettings(); applySettings();
+      alertMsg('Could not open the camera. Allow camera and microphone access in Settings › Safari, then try again.');
+    }
+  }
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; cam.srcObject = null;
+    P.classList.remove('cam', 'rear');
+  }
+  function alertMsg(m) { $('#saveInfo').textContent = m; $('#saveBar b').textContent = 'Camera'; $('#saveVid').style.display = 'none'; $('#saveBar').classList.add('show'); }
+
+  function pickMime() {
+    const opts = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    return opts.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  }
+  async function startRecording() {
+    if (!stream) { settings.camera = true; saveSettings(); applySettings(); await startCamera(); if (!stream) return; }
+    const mimeType = pickMime();
+    try { recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); }
+    catch { alertMsg('Recording is not supported on this device.'); return; }
+    chunks = [];
+    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => {
+      const type = recorder.mimeType || mimeType || 'video/mp4';
+      const ext = type.includes('mp4') ? 'mp4' : 'webm';
+      const name = (playingScript?.title || 'take').replace(/[^\w-]+/g, '_') + '-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.' + ext;
+      lastVideo = new File([new Blob(chunks, { type })], name, { type });
+      $('#saveBar b').textContent = 'Recording finished';
+      $('#saveInfo').textContent = fmtTime((Date.now() - recStart) / 1000) + ' · ' + (lastVideo.size / 1048576).toFixed(1) + ' MB';
+      $('#saveVid').style.display = '';
+      $('#saveBar').classList.add('show');
+      recorder = null;
+    };
+    recorder.start(1000);
+    recStart = Date.now();
+    P.classList.add('recording'); $('#recBtn').classList.add('on'); $('#recBtn').textContent = '■ Stop';
+    recTimer = setInterval(() => $('#recTime').textContent = fmtTime((Date.now() - recStart) / 1000), 500);
+    $('#recTime').textContent = '0:00';
+    if (!playing && !cdTimer) startWithCountdown();
+  }
+  function stopRecording() {
+    clearInterval(recTimer);
+    P.classList.remove('recording'); $('#recBtn').classList.remove('on'); $('#recBtn').textContent = '● Rec';
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  }
+  $('#recBtn').onclick = () => {
+    if (recorder) { stopRecording(); stopCountdown(); setPlaying(false); }
+    else startRecording();
+  };
+  $('#saveVid').onclick = async () => {
+    if (!lastVideo) return;
+    // iPhone: the share sheet has "Save Video" to put it in Photos
+    if (navigator.canShare && navigator.canShare({ files: [lastVideo] })) {
+      try { await navigator.share({ files: [lastVideo] }); } catch {}
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(lastVideo); a.download = lastVideo.name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+  };
+  $('#discardVid').onclick = () => { lastVideo = null; $('#saveBar').classList.remove('show'); };
+  $('#camBtn').onclick = () => {
+    settings.camera = !settings.camera; saveSettings(); applySettings();
+    if (settings.camera) startCamera(); else { stopRecording(); stopCamera(); }
+  };
+  $('#flipCam').onclick = () => {
+    if (recorder) return; // can't switch cameras mid-take
+    settings.facing = settings.facing === 'user' ? 'environment' : 'user'; saveSettings(); applySettings();
+    if (settings.camera) startCamera();
+  };
+  $('#shadeBtn').onclick = () => {
+    settings.shade = { 0: 0.25, 0.25: 0.45, 0.45: 0.65, 0.65: 0 }[settings.shade] ?? 0.45;
+    saveSettings(); applySettings();
+  };
+
+  // keep the screen awake while prompting
+  async function requestWake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  function releaseWake() { try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && P.classList.contains('active')) requestWake();
+    if (document.visibilityState === 'hidden') { if (playing) setPlaying(false); stopRecording(); }
+  });
+  window.addEventListener('resize', updateProgress);
+
+  renderList();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
